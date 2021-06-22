@@ -1,4 +1,5 @@
-pragma solidity ^0.5.16;
+//SPDX-License-Identifier: MIT
+pragma solidity 0.6.12;
 
 import "./SafeMath.sol";
 
@@ -33,13 +34,14 @@ contract Timelock {
         uint256 eta
     );
 
-	uint public constant GRACE_PERIOD = 14 days;
-    uint public constant MINIMUM_DELAY = 2 days;
-    uint public constant MAXIMUM_DELAY = 30 days;
+    uint256 public constant GRACE_PERIOD = 14 days;
+    uint256 public constant MINIMUM_DELAY = 6 hours;
+    uint256 public constant MAXIMUM_DELAY = 30 days;
 
     address public admin;
     address public pendingAdmin;
     uint256 public delay;
+    bool public admin_initialized;
 
     mapping(bytes32 => bool) public queuedTransactions;
 
@@ -50,14 +52,16 @@ contract Timelock {
         );
         require(
             delay_ <= MAXIMUM_DELAY,
-            "Timelock::setDelay: Delay must not exceed maximum delay."
+            "Timelock::constructor: Delay must not exceed maximum delay."
         );
 
         admin = admin_;
         delay = delay_;
+        admin_initialized = false;
     }
 
-    function() external payable {}
+    // XXX: function() external payable { }
+    receive() external payable {}
 
     function setDelay(uint256 delay_) public {
         require(
@@ -89,10 +93,19 @@ contract Timelock {
     }
 
     function setPendingAdmin(address pendingAdmin_) public {
-        require(
-            msg.sender == address(this),
-            "Timelock::setPendingAdmin: Call must come from Timelock."
-        );
+        // allows one time setting of admin for deployment purposes
+        if (admin_initialized) {
+            require(
+                msg.sender == address(this),
+                "Timelock::setPendingAdmin: Call must come from Timelock."
+            );
+        } else {
+            require(
+                msg.sender == admin,
+                "Timelock::setPendingAdmin: First call must come from admin."
+            );
+            admin_initialized = true;
+        }
         pendingAdmin = pendingAdmin_;
 
         emit NewPendingAdmin(pendingAdmin);
@@ -109,7 +122,6 @@ contract Timelock {
             msg.sender == admin,
             "Timelock::queueTransaction: Call must come from admin."
         );
-
         require(
             eta >= getBlockTimestamp().add(delay),
             "Timelock::queueTransaction: Estimated execution block must satisfy delay."
@@ -160,7 +172,6 @@ contract Timelock {
             queuedTransactions[txHash],
             "Timelock::executeTransaction: Transaction hasn't been queued."
         );
-
         require(
             getBlockTimestamp() >= eta,
             "Timelock::executeTransaction: Transaction hasn't surpassed time lock."
